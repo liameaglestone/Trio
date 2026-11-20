@@ -255,7 +255,7 @@ extension BaseGlookoManager: ServiceDelegate {
         startDate _: Date?
     ) async throws {}
 
-    func deliverRemoteBolus(amountInUnits _: Double) async throws {}
+    func deliverRemoteBolus(amountInUnits _: Double, decisionId _: UUID?) async throws {}
 }
 
 extension BaseGlookoManager: StatefulPluggableDelegate {
@@ -295,8 +295,8 @@ extension BaseGlookoManager {
 
             let syncCarb: [SyncCarbObject] = Array(chunk).map { $0.convertSyncCarb() }
 
-            let result = await TidepoolUploadSerializer.awaitUpload("carbs") { completion in
-                glookoService.uploadCarbData(created: syncCarb, updated: [], deleted: [], completion: completion)
+            let result = await TidepoolUploadSerializer.awaitUpload("carbs") {
+                try await glookoService.uploadCarbData(created: syncCarb, updated: [], deleted: [])
             }
 
             switch result {
@@ -351,8 +351,8 @@ extension BaseGlookoManager {
 
         Task { [weak self] in
             await self?.uploadSerializer.enqueue(.carbsDelete) { _ in
-                let result = await TidepoolUploadSerializer.awaitUpload("carbs-delete") { completion in
-                    glookoService.uploadCarbData(created: [], updated: [], deleted: syncCarb, completion: completion)
+                let result = await TidepoolUploadSerializer.awaitUpload("carbs-delete") {
+                    try await glookoService.uploadCarbData(created: [], updated: [], deleted: syncCarb)
                 }
                 switch result {
                 case .success:
@@ -399,8 +399,8 @@ extension BaseGlookoManager {
         )
         let boluses = pending.compactMap(Self.bolusDose)
 
-        let result = await TidepoolUploadSerializer.awaitUpload("dose") { completion in
-            glookoService.uploadPumpSnapshot(basal: basal, boluses: boluses, carbs: [], now: now, completion: completion)
+        let result = await TidepoolUploadSerializer.awaitUpload("dose") {
+            try await glookoService.uploadPumpSnapshot(basal: basal, boluses: boluses, carbs: [], now: now)
         }
         switch result {
         case .success:
@@ -425,7 +425,7 @@ extension BaseGlookoManager {
             startDate: event.timestamp,
             endDate: event.timestamp,
             value: Double(event.programmedAmount ?? amount),
-            unit: .units,
+            unit: .units, decisionId: nil,
             deliveredUnits: Double(amount),
             syncIdentifier: event.id,
             automatic: event.isSMB ?? true,
@@ -465,14 +465,14 @@ extension BaseGlookoManager {
             type: .bolus,
             startDate: at,
             value: Double(amount),
-            unit: .units,
+            unit: .units, decisionId: nil,
             syncIdentifier: id
         )]
 
         Task { [weak self] in
             await self?.uploadSerializer.enqueue(.doseDelete) { _ in
-                let result = await TidepoolUploadSerializer.awaitUpload("dose-delete") { completion in
-                    glookoService.uploadDoseData(created: [], deleted: doseDataToDelete, completion: completion)
+                let result = await TidepoolUploadSerializer.awaitUpload("dose-delete") {
+                    try await glookoService.uploadDoseData(created: [], deleted: doseDataToDelete)
                 }
                 switch result {
                 case .success:
@@ -509,8 +509,8 @@ extension BaseGlookoManager {
         for chunk in glucose.chunks(ofCount: glookoService.glucoseDataLimit ?? 100) {
             guard await uploadSerializer.isCurrent(generation) else { return }
 
-            let result = await TidepoolUploadSerializer.awaitUpload("glucose") { completion in
-                glookoService.uploadGlucoseData(Array(chunk), completion: completion)
+            let result = await TidepoolUploadSerializer.awaitUpload("glucose") {
+                try await glookoService.uploadGlucoseData(Array(chunk))
             }
 
             switch result {

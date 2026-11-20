@@ -76,7 +76,7 @@ import Testing
                 type: .bolus,
                 startDate: date,
                 value: 1.0,
-                unit: .units,
+                unit: .units, decisionId: nil,
                 deliveredUnits: isMutable ? 0.4 : 1.0,
                 syncIdentifier: syncIdentifier,
                 automatic: false,

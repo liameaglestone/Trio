@@ -47,7 +47,7 @@ enum GlookoBasalTimeline {
                     startDate: clippedStart,
                     endDate: clippedEnd,
                     value: Double(truncating: segment.rate as NSNumber),
-                    unit: .unitsPerHour,
+                    unit: .unitsPerHour, decisionId: nil,
                     automatic: segment.type == .tempBasal
                 )
             }
