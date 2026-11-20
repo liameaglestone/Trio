@@ -873,6 +873,7 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
                 carbEntry.isUploadedToNS = false
                 carbEntry.isUploadedToHealth = false
                 carbEntry.isUploadedToTidepool = false
+                carbEntry.isUploadedToGlooko = false
 
                 do {
                     guard context.hasChanges else {
@@ -937,6 +938,7 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
                     carbEntry.isUploadedToNS = false
                     carbEntry.isUploadedToHealth = false
                     carbEntry.isUploadedToTidepool = false
+                    carbEntry.isUploadedToGlooko = false
 
                     guard context.hasChanges else {
                         // Acknowledge failure

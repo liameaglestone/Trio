@@ -7,6 +7,8 @@ enum MultiUsePanelState: Equatable {
     case cgmStale
     case maxIOBZero
     case tidepoolLoginRequired
+    case glookoLoginRequired
+    case glookoUploadsFailing
     case whatsNew
     case dosingModeLimited(DosingMode)
     case stats
@@ -20,6 +22,7 @@ enum MultiUsePanelState: Equatable {
         lastGlucoseDate: Date?,
         maxIOB: Decimal,
         tidepoolLoginRequired: Bool,
+        glookoUploadIssue: GlookoUploadIssue? = nil,
         hasUnacknowledgedReleaseNotes: Bool,
         dosingMode: DosingMode,
         now: Date
@@ -34,6 +37,11 @@ enum MultiUsePanelState: Equatable {
         if maxIOB <= 0 { return .maxIOBZero }
         // Uploads only, so it yields to every dosing-related warning above.
         if tidepoolLoginRequired { return .tidepoolLoginRequired }
+        switch glookoUploadIssue {
+        case .loginRequired: return .glookoLoginRequired
+        case .uploadsFailing: return .glookoUploadsFailing
+        case nil: break
+        }
         // Informational, so it yields to every warning above but still displaces the stats.
         if hasUnacknowledgedReleaseNotes { return .whatsNew }
         return .stats

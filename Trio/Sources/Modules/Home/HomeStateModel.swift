@@ -23,6 +23,7 @@ extension Home {
         @ObservationIgnored @Injected() var fetchGlucoseManager: FetchGlucoseManager!
         @ObservationIgnored @Injected() var nightscoutManager: NightscoutManager!
         @ObservationIgnored @Injected() var tidepoolManager: TidepoolManager!
+        @ObservationIgnored @Injected() var glookoManager: GlookoManager!
         @ObservationIgnored @Injected() var determinationStorage: DeterminationStorage!
         @ObservationIgnored @Injected() var glucoseStorage: GlucoseStorage!
         @ObservationIgnored @Injected() var carbsStorage: CarbsStorage!
@@ -130,6 +131,7 @@ extension Home {
         var pumpStatusBadgeColor: Color?
         var tidepoolLoginRequired = false
         var cgmAvailable: Bool = false
+        var glookoUploadIssue: GlookoUploadIssue?
         var cgmDisplayState: CgmDisplayState?
         var cgmProgressHighlight: DeviceLifecycleProgress?
         var cgmSensorExpiresAt: Date?
@@ -687,6 +689,11 @@ extension Home {
             apsManager.bolusProgress
                 .receive(on: DispatchQueue.main)
                 .weakAssign(to: \.bolusProgress, on: self)
+                .store(in: &lifetime)
+
+            glookoManager.glookoUploadIssue
+                .receive(on: DispatchQueue.main)
+                .weakAssign(to: \.glookoUploadIssue, on: self)
                 .store(in: &lifetime)
 
             apsManager.pumpDisplayState

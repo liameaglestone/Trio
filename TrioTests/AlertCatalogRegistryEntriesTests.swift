@@ -266,4 +266,19 @@ import Testing
         #expect(AlertCatalogRegistry.lookup(id("trio.therapyProfiles", alertID))?.concept == expected)
         #expect(AlertCatalogRegistry.lookup(id("trio.therapyProfiles", alertID))?.category == "Profiles")
     }
+
+    // MARK: - Glooko service entries
+
+    @Test(
+        "Glooko alerts are Normal-tier Services entries",
+        arguments: [
+            ("authentication-needed", Alert.CatalogConcept.glookoLoginRequired),
+            ("uploads-stalled", Alert.CatalogConcept.glookoUploadsFailing)
+        ]
+    ) func glookoEntries(alertID: String, expected: Alert.CatalogConcept) {
+        let entry = AlertCatalogRegistry.lookup(id("GlookoService", alertID))
+        #expect(entry?.interruptionLevel == .active)
+        #expect(entry?.category == "Services")
+        #expect(entry?.concept == expected)
+    }
 }

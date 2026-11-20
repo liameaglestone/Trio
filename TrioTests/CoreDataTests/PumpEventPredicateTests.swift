@@ -94,6 +94,7 @@ import Testing
             event.isUploadedToNS = false
             event.isUploadedToHealth = false
             event.isUploadedToTidepool = false
+            event.isUploadedToGlooko = false
 
             let tempBasal = TempBasalStored(context: testContext)
             tempBasal.rate = 1.5 as NSDecimalNumber
@@ -146,7 +147,7 @@ import Testing
     }
 
     @Test(
-        "Legacy rows survive the Health/Tidepool upload predicates"
+        "Legacy rows survive the Health/Tidepool/Glooko upload predicates"
     ) func testLegacyRowsSurviveUploadPredicates(
     ) async throws {
         let date = Date().addingTimeInterval(-10.minutes.timeInterval)
@@ -156,6 +157,8 @@ import Testing
         let tidepoolTypes = try await fetchTypes(NSPredicate.pumpEventsNotYetUploadedToTidepool)
         #expect(healthTypes.contains(PumpEvent.tempBasal.rawValue), "Legacy rows must upload to Health")
         #expect(tidepoolTypes.contains(PumpEvent.tempBasal.rawValue), "Legacy rows must upload to Tidepool")
+        let glookoTypes = try await fetchTypes(NSPredicate.pumpEventsNotYetUploadedToGlooko)
+        #expect(glookoTypes.contains(PumpEvent.tempBasal.rawValue), "Legacy rows must upload to Glooko")
     }
 
     @Test("Scheduled-basal rows are excluded, regular temp basals are kept (control)") func testScheduledBasalExclusionStillWorks(

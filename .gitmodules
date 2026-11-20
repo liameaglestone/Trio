@@ -66,3 +66,6 @@
 	path = TandemKit
 	url = https://github.com/jwoglom/TandemKit.git
 	branch = next-dev
+[submodule "GlookoServiceKit"]
+	path = GlookoServiceKit
+	url = https://github.com/nightscout/GlookoServiceKit.git

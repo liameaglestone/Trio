@@ -55,4 +55,7 @@
    <FileRef
       location = "group:TandemKit/TandemKit.xcodeproj">
    </FileRef>
+   <FileRef
+      location = "group:GlookoServiceKit/GlookoServiceKit.xcodeproj">
+   </FileRef>
 </Workspace>

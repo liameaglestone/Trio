@@ -13,7 +13,7 @@ import LoopKit
 enum AlertCatalogRegistry {
     static let entries: [Alert.CatalogEntry] =
         omniEntries + minimedEntries + danaEntries + medtrumEntries + tandemEntries + libreLoopEntries
-            + g7Entries + syaiEntries + trioAlgorithmEntries + tidepoolEntries + trioProfileEntries
+            + g7Entries + syaiEntries + trioAlgorithmEntries + tidepoolEntries + trioProfileEntries + glookoEntries
 
     static func lookup(_ identifier: Alert.Identifier) -> Alert.CatalogEntry? {
         if let exact = entries.first(where: { $0.identifier == identifier }) {
@@ -545,6 +545,16 @@ private extension AlertCatalogRegistry {
             .scheduledProfileSwitchNotDone
         ),
         addEntry("trio.therapyProfiles", "scheduledSwitch.done", .active, "Profile Switched", "Profiles", .profileSwitched)
+    ]
+}
+
+// MARK: - Glooko
+
+private extension AlertCatalogRegistry {
+    /// Raised by `GlookoService`, forwarded through `GlookoManager.issueAlert(_:)`.
+    static let glookoEntries: [Alert.CatalogEntry] = [
+        addEntry("GlookoService", "authentication-needed", .active, "Glooko sign-in needed", "Services", .glookoLoginRequired),
+        addEntry("GlookoService", "uploads-stalled", .active, "Glooko uploads not working", "Services", .glookoUploadsFailing)
     ]
 }
 

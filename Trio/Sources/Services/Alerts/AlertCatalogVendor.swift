@@ -50,6 +50,10 @@ extension Alert {
         // under the `trio.therapyProfiles` manager identifier.
         case profileSwitched
         case scheduledProfileSwitchNotDone
+        // Glooko service concepts, surfaced through `TrioAlertManager` via
+        // `GlookoManager.issueAlert(_:)`.
+        case glookoLoginRequired
+        case glookoUploadsFailing
         /// Plugin-unique alarm that doesn't merge with anything else.
         case unspecified
 
@@ -90,6 +94,8 @@ extension Alert {
             case .tidepoolLoginRequired: return String(localized: "Tidepool Login Required")
             case .profileSwitched: return String(localized: "Profile Switched")
             case .scheduledProfileSwitchNotDone: return String(localized: "Scheduled Switch Not Done")
+            case .glookoLoginRequired: return String(localized: "Glooko Login Required")
+            case .glookoUploadsFailing: return String(localized: "Glooko Uploads Failing")
             case .unspecified: return ""
             }
         }
