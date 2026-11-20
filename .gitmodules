@@ -68,4 +68,5 @@
 	branch = next-dev
 [submodule "GlookoServiceKit"]
 	path = GlookoServiceKit
-	url = https://github.com/nightscout/GlookoServiceKit.git
+	url = https://github.com/liameaglestone/GlookoServiceKit.git
+	branch = trio-current-loopkit
