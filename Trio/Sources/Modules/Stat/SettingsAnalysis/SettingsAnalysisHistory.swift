@@ -27,16 +27,114 @@ extension SettingsAnalysis {
         let iob: Double
     }
 
+    /// A temp target or override. Named ones are identified by name, unnamed custom ones by
+    /// their values, so the user can pick which ones they use for exercise.
+    struct Adjustment: Hashable, Identifiable {
+        enum Kind: String {
+            case tempTarget
+            case override
+        }
+
+        let kind: Kind
+        /// Preset or custom name; nil for unnamed custom adjustments.
+        let name: String?
+        /// mg/dL
+        let target: Decimal?
+        let percentage: Double?
+
+        init(kind: Kind, name: String?, target: Decimal?, percentage: Double? = nil) {
+            self.kind = kind
+            let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            self.name = Self.defaultNames.contains(trimmed) ? nil : trimmed
+            self.target = target
+            self.percentage = percentage
+        }
+
+        /// Names Trio gives custom adjustments, which say nothing about their purpose.
+        private static let defaultNames: Set<String> = [
+            "",
+            "Custom",
+            "Custom Override",
+            "Custom Temp Target",
+            String(localized: "Custom Override"),
+            String(localized: "Custom Temp Target")
+        ]
+
+        var id: String {
+            if let name { return "\(kind.rawValue):\(name)" }
+            let target = self.target.map { "\(NSDecimalNumber(decimal: $0).intValue)" } ?? "-"
+            let percentage = self.percentage.map { "\(Int($0.rounded()))" } ?? "-"
+            return "\(kind.rawValue):custom:\(target):\(percentage)"
+        }
+
+        /// A raised temp target or a reduced-insulin override; the exercise selection
+        /// until the user picks their own.
+        var suggestsExercise: Bool {
+            (target ?? 0) >= HistoryLoader.activityTarget || (percentage ?? 100) < 100
+        }
+
+        static func == (lhs: Adjustment, rhs: Adjustment) -> Bool { lhs.id == rhs.id }
+        func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    }
+
+    struct AdjustmentPeriod: Equatable {
+        let adjustment: Adjustment
+        let interval: DateInterval
+    }
+
+    /// How often an adjustment ran, for the exercise selection.
+    /// Presets that never ran have a count of 0.
+    struct AdjustmentUsage: Identifiable, Equatable {
+        let adjustment: Adjustment
+        let count: Int
+        let duration: TimeInterval
+        var id: String { adjustment.id }
+        /// A preset that never ran.
+        var isUnused: Bool { count < 1 }
+
+        static func usages(
+            of periods: [AdjustmentPeriod],
+            presets: [Adjustment] = [],
+            in timeFrame: TimeFrame
+        ) -> [AdjustmentUsage] {
+            let inFrame = periods.filter { $0.interval.end >= timeFrame.start && $0.interval.start <= timeFrame.end }
+            var usages = Dictionary(grouping: inFrame, by: \.adjustment.id).compactMapValues { group in
+                group.first.map {
+                    AdjustmentUsage(
+                        adjustment: $0.adjustment,
+                        count: group.count,
+                        duration: group.map(\.interval.duration).reduce(0, +)
+                    )
+                }
+            }
+            for preset in presets where usages[preset.id] == nil {
+                usages[preset.id] = AdjustmentUsage(adjustment: preset, count: 0, duration: 0)
+            }
+            return usages.values.sorted { $0.count != $1.count ? $0.count > $1.count : $0.id < $1.id }
+        }
+    }
+
     /// Glucose in mg/dL; all arrays sorted by date.
     struct History {
         var glucose: [GlucosePoint] = []
         var carbs: [CarbEvent] = []
         var boluses: [BolusEvent] = []
-        /// Periods with a raised temp target or a reduced-insulin override.
+        /// Every temp target and override, whatever it was used for.
+        var adjustments: [AdjustmentPeriod] = []
+        /// Merged periods of the adjustments used for exercise.
         var activity: [DateInterval] = []
         var iob: [IOBPoint] = []
         /// Rewind, prime or site change events.
         var siteChanges: [Date] = []
+
+        /// Rebuilds `activity` from the adjustments used for exercise (by `Adjustment.id`);
+        /// `nil` means the user has not picked any, so those that suggest exercise are used.
+        mutating func selectExercise(_ exercise: Set<String>?) {
+            activity = HistoryLoader.merge(
+                adjustments.filter { exercise?.contains($0.adjustment.id) ?? $0.adjustment.suggestsExercise }
+                    .map(\.interval)
+            )
+        }
     }
 }
 
@@ -48,11 +146,12 @@ extension SettingsAnalysis {
         static let lookback: TimeInterval = 6 * 3600
         /// Site changes are looked up further back to know a site's age.
         static let siteLookback: TimeInterval = 10 * 86400
-        /// A temp target at or above this (mg/dL) counts as an activity target.
+        /// A temp target at or above this (mg/dL) suggests exercise.
         static let activityTarget: Decimal = 110
 
         static func load(
             _ timeFrame: TimeFrame,
+            exerciseAdjustments: Set<String>? = nil,
             context: NSManagedObjectContext = CoreDataStack.shared.newTaskContext()
         ) async -> History {
             let start = timeFrame.start.addingTimeInterval(-lookback)
@@ -64,11 +163,41 @@ extension SettingsAnalysis {
                 history.carbs = carbs(from: start, to: end, in: context)
                 history.boluses = boluses(from: start, to: end, in: context)
                 history.siteChanges = siteChanges(from: start.addingTimeInterval(-siteLookback), to: end, in: context)
-                history.activity = activity(from: start, to: end, in: context)
+                history.adjustments = adjustmentPeriods(from: start, to: end, in: context)
+                history.selectExercise(exerciseAdjustments)
                 if !history.activity.isEmpty {
                     history.iob = iob(from: start, to: end, in: context)
                 }
                 return history
+            }
+        }
+
+        /// Every preset plus every temp target and override ever used, for choosing which are
+        /// for exercise. Not limited to a time frame, so the list stays the same whatever is analyzed.
+        static func adjustmentUsages(
+            now: Date = Date(),
+            context: NSManagedObjectContext = CoreDataStack.shared.newTaskContext()
+        ) async -> [AdjustmentUsage] {
+            let timeFrame = TimeFrame(start: .distantPast, end: now)
+            return await context.perform {
+                AdjustmentUsage.usages(
+                    of: adjustmentPeriods(from: timeFrame.start, to: timeFrame.end, in: context),
+                    presets: presets(in: context),
+                    in: timeFrame
+                )
+            }
+        }
+
+        private static func presets(in context: NSManagedObjectContext) -> [Adjustment] {
+            let isPreset = NSPredicate(format: "isPreset == YES")
+            let tempTargets: NSFetchRequest<TempTargetStored> = TempTargetStored.fetchRequest()
+            tempTargets.predicate = isPreset
+            let overrides: NSFetchRequest<OverrideStored> = OverrideStored.fetchRequest()
+            overrides.predicate = isPreset
+            return ((try? context.fetch(tempTargets)) ?? []).map {
+                Adjustment(kind: .tempTarget, name: $0.name, target: $0.target as Decimal?)
+            } + ((try? context.fetch(overrides)) ?? []).map {
+                Adjustment(kind: .override, name: $0.name, target: $0.target as Decimal?, percentage: $0.percentage)
             }
         }
 
@@ -184,17 +313,22 @@ extension SettingsAnalysis {
 
         /// Run entities only exist for cancelled adjustments; expired ones are
         /// rebuilt from the stored row's start and duration.
-        private static func activity(from start: Date, to end: Date, in context: NSManagedObjectContext) -> [DateInterval] {
-            var intervals: [DateInterval] = []
+        private static func adjustmentPeriods(
+            from start: Date,
+            to end: Date,
+            in context: NSManagedObjectContext
+        ) -> [AdjustmentPeriod] {
+            var periods: [AdjustmentPeriod] = []
             let overlaps = NSPredicate(format: "startDate <= %@ AND endDate >= %@", end as NSDate, start as NSDate)
 
             let tempTargetRuns: NSFetchRequest<TempTargetRunStored> = TempTargetRunStored.fetchRequest()
             tempTargetRuns.predicate = overlaps
+            tempTargetRuns.relationshipKeyPathsForPrefetching = ["tempTarget"]
             for run in (try? context.fetch(tempTargetRuns)) ?? [] {
-                guard let runStart = run.startDate, let runEnd = run.endDate,
-                      (run.target as Decimal?) ?? 0 >= activityTarget
-                else { continue }
-                intervals.append(interval(runStart, runEnd))
+                guard let runStart = run.startDate, let runEnd = run.endDate else { continue }
+                let target = run.target as Decimal?
+                let adjustment = Adjustment(kind: .tempTarget, name: run.name ?? run.tempTarget?.name, target: target)
+                periods.append(AdjustmentPeriod(adjustment: adjustment, interval: interval(runStart, runEnd)))
             }
 
             // A run links to its override only until that preset runs again (the relationship is
@@ -211,10 +345,14 @@ extension SettingsAnalysis {
             overrideRuns.relationshipKeyPathsForPrefetching = ["override"]
             for run in (try? context.fetch(overrideRuns)) ?? [] {
                 let percentage = run.override?.percentage ?? run.name.flatMap { presetPercentage[$0] }
-                guard let runStart = run.startDate, let runEnd = run.endDate,
-                      isActivity(target: run.target as Decimal?, percentage: percentage)
-                else { continue }
-                intervals.append(interval(runStart, runEnd))
+                guard let runStart = run.startDate, let runEnd = run.endDate else { continue }
+                let adjustment = Adjustment(
+                    kind: .override,
+                    name: run.name ?? run.override?.name,
+                    target: run.target as Decimal?,
+                    percentage: percentage
+                )
+                periods.append(AdjustmentPeriod(adjustment: adjustment, interval: interval(runStart, runEnd)))
             }
 
             // Rows without a run: the enabled one (however long ago it started) and older one-off
@@ -238,30 +376,38 @@ extension SettingsAnalysis {
             let tempTargets: NSFetchRequest<TempTargetStored> = TempTargetStored.fetchRequest()
             tempTargets.predicate = rows(runKey: "tempTargetRun")
             for row in (try? context.fetch(tempTargets)) ?? [] {
-                guard let rowStart = row.date, (row.target as Decimal?) ?? 0 >= activityTarget,
+                guard let rowStart = row.date, let target = row.target as Decimal?,
                       let minutes = (row.duration as Decimal?).map({ NSDecimalNumber(decimal: $0).doubleValue }), minutes > 0
                 else { continue }
-                intervals.append(interval(rowStart, min(rowStart.addingTimeInterval(minutes * 60), end)))
+                periods.append(AdjustmentPeriod(
+                    adjustment: Adjustment(kind: .tempTarget, name: row.name, target: target),
+                    interval: interval(rowStart, min(rowStart.addingTimeInterval(minutes * 60), end))
+                ))
             }
 
             let overrides: NSFetchRequest<OverrideStored> = OverrideStored.fetchRequest()
             overrides.predicate = rows(runKey: "overrideRun")
             for row in (try? context.fetch(overrides)) ?? [] {
-                guard let rowStart = row.date,
-                      isActivity(target: row.target as Decimal?, percentage: row.percentage) else { continue }
+                guard let rowStart = row.date else { continue }
                 let minutes = (row.duration as Decimal?).map { NSDecimalNumber(decimal: $0).doubleValue } ?? 0
                 let rowEnd = row.indefinite || minutes <= 0
                     ? (row.enabled ? end : rowStart)
                     : min(rowStart.addingTimeInterval(minutes * 60), end)
                 guard rowEnd > rowStart else { continue }
-                intervals.append(interval(rowStart, rowEnd))
+                periods.append(AdjustmentPeriod(
+                    adjustment: Adjustment(
+                        kind: .override,
+                        name: row.name,
+                        target: row.target as Decimal?,
+                        percentage: row.percentage
+                    ),
+                    interval: interval(rowStart, rowEnd)
+                ))
             }
 
-            return merge(intervals).filter { $0.end >= start && $0.start <= end }
-        }
-
-        private static func isActivity(target: Decimal?, percentage: Double?) -> Bool {
-            (target ?? 0) >= activityTarget || (percentage ?? 100) < 100
+            return periods
+                .filter { $0.interval.end >= start && $0.interval.start <= end }
+                .sorted { $0.interval.start < $1.interval.start }
         }
 
         private static func interval(_ start: Date, _ end: Date) -> DateInterval {

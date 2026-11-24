@@ -3,15 +3,20 @@ import Foundation
 extension SettingsAnalysis {
     struct Engine {
         let units: GlucoseUnits
-        var loadHistory: (TimeFrame) async -> History = { await HistoryLoader.load($0) }
+        var loadHistory: (TimeFrame, Set<String>?) async -> History = {
+            await HistoryLoader.load($0, exerciseAdjustments: $1)
+        }
 
+        /// `exerciseAdjustments` holds the `Adjustment.id`s the user uses for exercise;
+        /// `nil` until they pick, which uses raised temp targets and reduced-insulin overrides.
         func analyze(
             timeFrame: TimeFrame,
+            exerciseAdjustments: Set<String>? = nil,
             snapshot: SettingsSnapshot,
             catalog: Catalog?,
             catalogError: String?
         ) async -> Report {
-            let history = await loadHistory(timeFrame)
+            let history = await loadHistory(timeFrame, exerciseAdjustments)
             return Self.report(
                 history: history,
                 timeFrame: timeFrame,

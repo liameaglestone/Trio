@@ -578,7 +578,9 @@ import Testing
 
         var engine = SettingsAnalysis.Engine(units: .mgdL)
         let context = self.context
-        engine.loadHistory = { await SettingsAnalysis.HistoryLoader.load($0, context: context) }
+        engine.loadHistory = {
+            await SettingsAnalysis.HistoryLoader.load($0, exerciseAdjustments: $1, context: context)
+        }
         let report = await engine.analyze(timeFrame: frame, snapshot: .defaults, catalog: nil, catalogError: nil)
 
         let found = Set(report.findings.map(\.scenario))
@@ -587,5 +589,52 @@ import Testing
         #expect(found.contains(.exerciseDrop))
         #expect(!found.contains(.unannouncedMeal))
         #expect(report.readings == 289)
+
+        // The user marks nothing as exercise: no activity drop.
+        let usages = await SettingsAnalysis.HistoryLoader.adjustmentUsages(now: frame.end, context: context)
+        #expect(usages.map(\.adjustment.name) == ["Exercise"])
+        let excluded = await engine.analyze(
+            timeFrame: frame,
+            exerciseAdjustments: [],
+            snapshot: .defaults,
+            catalog: nil,
+            catalogError: nil
+        )
+        #expect(!excluded.findings.map(\.scenario).contains(.exerciseDrop))
+    }
+
+    @Test("Adjustments are grouped by name, or by values when unnamed") func testAdjustmentUsages() {
+        typealias Adjustment = SettingsAnalysis.Adjustment
+        let afterLow = Adjustment(kind: .tempTarget, name: "After Low", target: 150)
+        let custom140 = Adjustment(kind: .tempTarget, name: "Custom Temp Target", target: 140)
+        let unnamed140 = Adjustment(kind: .tempTarget, name: nil, target: 140)
+        let custom120 = Adjustment(kind: .tempTarget, name: "", target: 120)
+        #expect(custom140 == unnamed140)
+        #expect(custom140 != custom120)
+        #expect(custom140.name == nil)
+
+        func period(_ adjustment: Adjustment, _ hour: Double) -> SettingsAnalysis.AdjustmentPeriod {
+            .init(adjustment: adjustment, interval: DateInterval(start: at(hour), duration: 1800))
+        }
+        var history = SettingsAnalysis.History()
+        history.adjustments = [
+            period(afterLow, 3), period(custom140, 8), period(afterLow, 10), period(unnamed140, 15), period(custom120, 17)
+        ]
+        let usages = SettingsAnalysis.AdjustmentUsage.usages(of: history.adjustments, in: frame)
+        #expect(usages.map(\.count) == [2, 2, 1])
+        #expect(usages.first(where: { $0.adjustment == afterLow })?.duration == 3600)
+
+        // Until the user picks, raised temp targets count.
+        history.selectExercise(nil)
+        #expect(history.activity.map(\.start) == [at(3), at(8), at(10), at(15), at(17)])
+        // Only the ones marked as exercise count.
+        history.selectExercise([custom140.id, custom120.id])
+        #expect(history.activity.map(\.start) == [at(8), at(15), at(17)])
+
+        // Unused presets are listed too, after the used ones.
+        let sport = Adjustment(kind: .override, name: "Sport", target: nil, percentage: 70)
+        let withPresets = SettingsAnalysis.AdjustmentUsage.usages(of: history.adjustments, presets: [afterLow, sport], in: frame)
+        #expect(withPresets.map(\.count) == [2, 2, 1, 0])
+        #expect(withPresets.last?.adjustment == sport)
     }
 }
